@@ -37,6 +37,7 @@ A single supervised detector is limited to the classes it was trained on. To add
               ┌──────────┼──────────┐
               │          │          │
              HIGH      REVIEW      REJECT
+```text
 
 Current Detection Classes
 
