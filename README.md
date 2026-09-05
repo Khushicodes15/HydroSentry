@@ -1,131 +1,221 @@
-# SIH26057 — Sonar Anomaly & Object Detection
-
-An AI-assisted side-scan sonar analysis system for detecting known underwater objects and identifying previously unseen anomalies in sonar imagery.
-
-The system combines supervised object detection with unsupervised anomaly detection to provide a practical detection and operator-triage workflow.
+# SIH26057 — Sonar Anomaly & Debris Detection
 
 ## Overview
 
-Side-scan sonar imagery can contain known objects such as aircraft and shipwrecks, while also containing previously unseen objects or unusual seabed structures.
+A software-based **side-scan sonar anomaly detection system** for identifying underwater objects and previously unseen anomalies in sonar imagery.
 
-A single supervised detector is limited to the classes it was trained on. To address this, our system uses two complementary ML approaches:
+The system combines:
 
-- **YOLOv8** — detects known object classes
-- **PatchCore** — identifies regions that differ from normal seafloor imagery
-- **Spatial fusion** — correlates detections from both branches
-- **Operator triage** — categorises detections as `HIGH`, `REVIEW`, or `REJECT`
+* **YOLOv8** for known-object detection
+* **PatchCore** for anomaly detection and localization
+* **Dual-branch fusion** to distinguish corroborated detections from single-model detections
+* A lightweight **operator triage system** using `HIGH`, `REVIEW`, and `REJECT` buckets
+
+The ML pipeline is designed around the practical challenge of **limited labeled sonar data**, where a supervised detector alone cannot reliably cover every possible underwater object.
+
+---
+
+## Repository Structure
 
 ```text
-                    Sonar Image
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-          YOLOv8                  PatchCore
-              │                     │
-       Known objects         Anomaly detection
-              │                     │
-              │              Image-level gate
-              │                     │
-              │              Anomaly localization
-              │                     │
-              └──────────┬──────────┘
-                         │
-                  IoU-based Fusion
-                         │
-                 Detection Buckets
-                         │
-              ┌──────────┼──────────┐
-              │          │          │
-             HIGH      REVIEW      REJECT
+SIH26057/
+│
+├── ml/
+│   ├── sonar_pipeline.py
+│   ├── sih26057_ml_handoff.json
+│   ├── requirements.txt
+│   ├── README.md
+│   └── golden/
+│       └── golden_cases.json
+│
+├── backend/
+│   └── # Backend/API integration
+│
+└── README.md
+```
+
+> The `backend/` folder is reserved for the backend integration and will be added separately.
+
+---
+
+# ML Pipeline
+
 ```text
+                    Side-Scan Sonar Image
+                              |
+              +---------------+---------------+
+              |                               |
+              v                               v
+          YOLOv8                         PatchCore
+       Known Objects                    Anomaly Detection
+              |                               |
+              |                         Image Score
+              |                               |
+              |                         Gate = 0.3103
+              |                               |
+              |                         Raw Anomaly Map
+              |                               |
+              |                       Threshold = 0.35
+              |                               |
+              |                    Connected Components
+              |                               |
+              |                         Min Area = 200
+              |                               |
+              |                       Merge Nearby Boxes
+              |                               |
+              +---------------+---------------+
+                              |
+                              v
+                       Box-Level Fusion
+                         IoU >= 0.10
+                              |
+                +-------------+-------------+
+                |             |             |
+                v             v             v
+              BOTH       YOLO_ONLY    PATCHCORE_ONLY
+                |             |             |
+                +-------------+-------------+
+                              |
+                              v
+                    Operator Triage Bucket
+                              |
+                 +------------+------------+
+                 |            |            |
+                HIGH        REVIEW       REJECT
+```
 
-Current Detection Classes
+---
 
-The current YOLO model uses two classes:
+# Models
 
-Class ID	Class
-0	Aircraft
-1	Shipwreck
+## YOLOv8
 
-Unknown objects are not assigned a YOLO class. They can be surfaced through the PatchCore anomaly branch.
+YOLOv8 handles **known-object detection**.
 
-ML Architecture
-1. YOLOv8
+Current classes:
 
-YOLOv8 is used as the supervised object detector for known sonar objects.
+```text
+0 = aircraft
+1 = shipwreck
+```
 
-Input: sonar image
+There is **no mine class** in the current two-class model.
 
-Output:
+YOLO inference confidence threshold:
 
-bounding box
-class
-detector confidence
+```text
+0.25
+```
 
-Current inference confidence threshold:
+---
 
-yolo_conf = 0.25
-2. PatchCore
+## PatchCore
 
-PatchCore is trained using normal seafloor imagery rather than requiring every possible anomaly to be labelled.
+PatchCore is used as the **unknown-anomaly detection branch**.
 
-This allows the system to identify visually unusual regions that are not represented by the supervised YOLO classes.
+It learns the appearance of normal seafloor imagery and identifies regions that deviate from that normal distribution.
 
-The anomaly branch operates in two stages:
+The PatchCore branch operates at two levels:
 
-PatchCore
-   ↓
-Image-level anomaly score
-   ↓
-Gate
-   ↓
-Raw anomaly map
-   ↓
-Absolute threshold
-   ↓
+1. **Image-level anomaly score**
+2. **Pixel/region-level anomaly localization**
+
+The image-level gate is:
+
+```text
+0.3103
+```
+
+If the image anomaly score is below this threshold, the PatchCore anomaly branch is disabled for that image.
+
+---
+
+# Anomaly Localization
+
+PatchCore's raw anomaly map is processed as follows:
+
+```text
+Raw PatchCore anomaly map
+        |
+        v
+256 × 256 resolution
+        |
+        v
+Absolute threshold = 0.35
+        |
+        v
+Binary anomaly mask
+        |
+        v
 Connected components
-   ↓
+        |
+        v
+Remove components < 200 px
+        |
+        v
+Merge boxes within 0.02 normalized distance
+        |
+        v
 Candidate anomaly boxes
+```
 
-Current configuration:
+The threshold is **absolute**, not per-image normalized.
 
-image_gate       = 0.3103
-heat_threshold   = 0.35
-anomaly_map      = 256 × 256
-min_area_px      = 200
-merge_gap_norm   = 0.02
+---
 
-The heatmap threshold is an absolute threshold on the raw anomaly map.
+# Detection Fusion
 
-3. Detection Fusion
+YOLO detections and PatchCore anomaly boxes are matched using:
 
-YOLO and PatchCore detections are matched spatially using IoU.
+```text
+IoU >= 0.10
+```
 
-fusion_iou = 0.10
+The resulting source is one of:
 
-A detection can therefore originate from:
+```text
+both
+yolo_only
+patchcore_only
+```
 
-both — YOLO and PatchCore agree spatially
-yolo_only — detected only by YOLO
-patchcore_only — detected only by PatchCore
-4. Operator Triage
+### `both`
 
-The fused detections are assigned one of three buckets:
+Both YOLO and PatchCore identify the same region.
 
-HIGH
-REVIEW
-REJECT
+This provides stronger corroboration and maps to the highest-confidence operator bucket.
 
-The purpose of these buckets is operator triage, not to claim an improvement in raw object-detection accuracy.
+### `yolo_only`
 
-Current admission thresholds:
+Only YOLO detects the region.
 
-review_yolo_only_conf       = 0.70
-review_patchcore_only_amax  = 0.55
-Output Contract
+A YOLO-only detection must meet:
 
-The ML pipeline returns one detection dictionary per candidate:
+```text
+YOLO confidence >= 0.70
+```
 
+to enter the `REVIEW` bucket.
+
+### `patchcore_only`
+
+Only PatchCore detects the region.
+
+A PatchCore-only anomaly must meet:
+
+```text
+anomaly_score >= 0.55
+```
+
+to enter the `REVIEW` bucket.
+
+---
+
+# Final Output
+
+Each detection follows this structure:
+
+```json
 {
   "bbox": {
     "x_min": 0.41,
@@ -134,175 +224,384 @@ The ML pipeline returns one detection dictionary per candidate:
     "y_max": 0.38
   },
   "src": "both",
-  "class_name": "aircraft",
+  "class_name": "shipwreck",
   "yolo_conf": 0.87,
   "anomaly_score": 0.61,
   "anomaly_mean": 0.44,
   "bucket": "HIGH"
 }
+```
 
-Bounding boxes are normalised to [0, 1].
+Bounding boxes are normalized to:
 
-Repository Structure
+```text
+0–1
+```
 
-The repository is being developed with separate ML and backend components:
+The frontend can multiply these coordinates by the rendered image dimensions.
 
-SIH26057/
-│
-├── ml/
-│   ├── sonar_pipeline.py
-│   ├── sih26057_ml_handoff.json
-│   ├── requirements.txt
-│   └── README.md
-│
-├── backend/
-│   └── ...
-│
-└── README.md
+---
 
-The backend directory will contain the API/server layer that exposes the ML pipeline to the application.
+# Operator Triage
 
-ML Usage
+The system intentionally separates model output from the final operator-facing decision.
 
-The ML pipeline is designed to provide a simple inference interface:
+```text
+HIGH
+```
 
+Both branches corroborate the detection.
+
+```text
+REVIEW
+```
+
+Only one branch detects the object, but the detection exceeds the corresponding admission threshold.
+
+```text
+REJECT
+```
+
+The detection does not satisfy the required admission criteria.
+
+`REJECT` detections are still returned by the ML module. The backend/frontend can decide whether to hide them, collapse them, or expose them to the operator.
+
+---
+
+# Current ML Results
+
+The current evaluated pipeline produced:
+
+```text
+Total candidate boxes: 80
+
+HIGH_CONFIDENCE: 30
+REVIEW_REQUIRED: 35
+REJECT: 15
+```
+
+Final confidence statistics:
+
+```text
+Mean:   0.624581
+Std:    0.192077
+Min:    0.334800
+Max:    1.000000
+```
+
+The physics-verification experiment was evaluated separately and is **not part of the current production pipeline**.
+
+---
+
+# Important: What We Can Claim
+
+The current system should **not** be presented as definitively beating YOLOv8.
+
+On the available evaluation:
+
+```text
+Best F1:
+Fusion pipeline = 0.907
+Tuned YOLOv8    = 0.894
+```
+
+However, the difference was **not statistically resolvable** on the available data.
+
+The stronger demonstrated result is the effect of requiring model corroboration:
+
+```text
+Naive union:
+Precision = 0.447
+False positives = 140
+
+Corroborated detections:
+Precision = 0.928
+False positives = 8
+```
+
+Therefore, the primary demonstrated value is **better precision / operator triage through fusion**, rather than claiming a definitive overall detection-performance improvement over YOLOv8.
+
+---
+
+# Why PatchCore?
+
+A conventional supervised detector is constrained by its labeled classes.
+
+For underwater sonar imagery, previously unseen objects can appear that were not represented in the training labels.
+
+PatchCore provides a complementary mechanism:
+
+```text
+Known object
+    ↓
+YOLOv8
+    ↓
+classified detection
+
+
+Previously unseen / unusual region
+    ↓
+PatchCore
+    ↓
+unknown anomaly
+```
+
+This allows the system to surface potentially relevant anomalies outside the known-object classes.
+
+---
+
+# Current ML Status
+
+## Completed
+
+* YOLOv8 known-object detection
+* Two-class YOLO model
+* PatchCore training
+* PatchCore image-level anomaly detection
+* PatchCore anomaly localization
+* Connected-component box generation
+* Anomaly-box filtering
+* YOLO + PatchCore fusion
+* Confidence scoring
+* HIGH / REVIEW / REJECT decision buckets
+* Golden-case validation
+* ML/backend handoff package
+
+## Not Part of Current Pipeline
+
+* Physics verification
+* Physics-based filtering
+* Previous 3-class `mine` classification
+* Previous `patchcore_handoff.json`
+* Per-image relative heatmap thresholding
+
+---
+
+# Configuration
+
+All production configuration values are stored in:
+
+```text
+sih26057_ml_handoff.json
+```
+
+The important values are:
+
+```text
+yolo_conf                  = 0.25
+image_gate                 = 0.3103
+heat_threshold_abs         = 0.35
+min_area_px                = 200
+merge_gap_norm             = 0.02
+fusion_iou                 = 0.10
+review_yolo_only_conf      = 0.70
+review_patchcore_only_amax = 0.55
+anomaly_map_hw             = 256 × 256
+```
+
+The JSON configuration should be treated as the **source of truth** rather than duplicating these values throughout the codebase.
+
+---
+
+# ML Usage
+
+```python
 from sonar_pipeline import SonarDetector, autodiscover
 
 detector = SonarDetector(autodiscover())
 
 detections = detector.detect("image.jpg")
+```
 
 For batch inference:
 
+```python
 detections = detector.detect_dir("folder/")
+```
 
-Models are loaded once and reused across inference requests.
+Batch inference is preferred when processing multiple sonar images because the models are loaded once.
 
-Model Weights
+---
 
-Model weights are intentionally not stored in this repository.
+# Model Files
 
-The ML pipeline expects:
+The repository does not need to store large model weights directly in Git.
 
+The expected model files are:
+
+```text
 weights/
 ├── best.pt
 └── model.ckpt
+```
 
 Where:
 
-best.pt    → trained YOLOv8 model
-model.ckpt → trained PatchCore model
+```text
+best.pt
+    YOLOv8 two-class checkpoint
 
-See the ML handoff documentation for the required checkpoints and verification information.
+model.ckpt
+    PatchCore seafloor checkpoint
+```
 
-Backend Integration
+Model checksums and expected versions are documented in the ML handoff package.
 
-The backend will be responsible for:
+---
 
-Receiving sonar imagery from the frontend.
-Passing the image to the ML pipeline.
-Returning the detection results as JSON.
-Handling inference errors and validation.
-Serving the results to the frontend/dashboard.
+# Backend Integration
 
-Conceptually:
+The backend should treat the ML module as an inference service/module rather than implementing ML logic itself.
 
+Expected flow:
+
+```text
 Frontend
-   │
-   │ sonar image
-   ▼
+   |
+   | sonar image
+   v
 Backend API
-   │
-   ▼
-SonarDetector
-   │
-   ├── YOLOv8
-   ├── PatchCore
-   └── IoU Fusion
-   │
-   ▼
+   |
+   | image
+   v
+ML Pipeline
+   |
+   +--> YOLOv8
+   |
+   +--> PatchCore
+   |
+   +--> Fusion
+   |
+   v
 Detection JSON
-   │
-   ▼
-Frontend / Dashboard
-Reproducibility
-
-The ML environment should use the versions specified in:
-
-ml/requirements.txt
-
-The dependency versions are important because PatchCore anomaly-score calibration and threshold behaviour depend on the Anomalib environment.
-
-The repository also includes a self-check:
-
-python sonar_pipeline.py --selfcheck golden/golden_cases.json
-
-Expected result:
-
-SELFCHECK PASS
-
-The self-check should pass before integrating the ML pipeline into the backend.
-
-Evaluation
-
-The current evaluation shows that the fused pipeline should not be presented as simply "better than YOLO".
-
-Current results:
-
-Tuned YOLOv8:
-F1 = 0.894
-
-Fused system:
-F1 = 0.907
-
-The difference is not statistically resolvable on the current evaluation.
-
-The more meaningful result is the effect of requiring spatial corroboration:
-
-Naive union:
-Precision = 0.447
-False positives = 140
-
-Corroborated fusion:
-Precision = 0.928
-False positives = 8
-
-Therefore, the key system objective is:
-
-Reduce false-positive burden and surface both known and previously unseen sonar anomalies in an operator-friendly triage workflow.
-
-Status
-ML
- YOLOv8 known-object detector
- PatchCore anomaly detector
- Anomaly-map based candidate localization
- Spatial IoU fusion
- Confidence/triage buckets
- ML inference contract
- Golden self-check
+   |
+   v
 Backend
- API integration
- Model loading/service layer
- Image upload endpoint
- ML inference endpoint
- Frontend integration
- Deployment
-Future Work
-Confidence calibration
-Geolocation transformation
-Temporal deduplication
-ONNX/edge optimisation and benchmarking
-Production deployment
-Larger and more diverse sonar datasets
-Important Notes
-Do not add mine as a YOLO class. The current model is 2-class.
-Do not use the older patchcore_handoff.json.
-Do not use the superseded relative heatmap threshold of 0.70.
-The current heatmap threshold is absolute 0.35.
-Do not interpret HIGH, REVIEW, and REJECT as calibrated probabilities.
-Do not claim that the system has established state-of-the-art performance based on the current evaluation.
-SIH 2026 — Problem Statement 26057
+   |
+   v
+Frontend / Database
+```
 
-Side-Scan Sonar Object and Anomaly Detection
+The backend should consume the output contract from `sonar_pipeline.py` and avoid reimplementing:
 
-Built as a modular ML + backend system for practical sonar-image analysis and operator-assisted underwater object detection.
+* YOLO inference
+* PatchCore inference
+* anomaly-map processing
+* box generation
+* fusion logic
+* confidence calculation
+* decision thresholds
+
+---
+
+# Validation
+
+Before integration, run:
+
+```bash
+python sonar_pipeline.py --selfcheck golden/golden_cases.json
+```
+
+Expected output:
+
+```text
+SELFCHECK PASS
+```
+
+If the self-check fails, the ML integration should be stopped and investigated before proceeding.
+
+---
+
+# Reproducibility
+
+The ML environment depends on specific library versions.
+
+Install:
+
+```bash
+pip install -r requirements.txt
+```
+
+Do not casually change the pinned versions.
+
+In particular, PatchCore anomaly-score behavior depends on the Anomalib version used during development.
+
+---
+
+# Current Goal
+
+The goal is **not simply to run YOLO on sonar images**.
+
+The intended contribution is a practical sonar detection system that combines:
+
+```text
+Supervised detection
+        +
+Unsupervised anomaly detection
+        +
+Spatial localization
+        +
+Cross-model corroboration
+        +
+Operator triage
+```
+
+The system is therefore designed to handle both:
+
+```text
+Known objects
+    → aircraft / shipwreck
+
+Unknown anomalies
+    → potentially relevant objects or debris not represented
+      in the supervised training classes
+```
+
+The long-term evaluation goal is to determine whether this architecture can provide a meaningful advantage over a conventional supervised-only baseline, while being explicit about what the current experiments do and do not establish.
+
+---
+
+# Current Roadmap
+
+```text
+[✓] Dataset preparation
+[✓] YOLOv8 baseline
+[✓] PatchCore anomaly detector
+[✓] Anomaly localization
+[✓] YOLO + PatchCore fusion
+[✓] Confidence / triage logic
+[✓] Golden-case validation
+[✓] Backend handoff
+
+[ ] Backend integration
+[ ] Frontend/dashboard integration
+[ ] End-to-end API testing
+[ ] Deployment / model serving
+[ ] ONNX / edge benchmarking
+[ ] Geolocation transformation
+[ ] Temporal deduplication
+[ ] Final comparative evaluation
+[ ] Final demo
+```
+
+---
+
+# Repository Principle
+
+Keep the architecture modular:
+
+```text
+ML
+ ↓
+sonar_pipeline.py
+ ↓
+structured detection output
+ ↓
+Backend
+ ↓
+API / storage / orchestration
+ ↓
+Frontend
+```
+
+The ML layer should remain independently testable and reproducible, while the backend owns API handling, persistence, authentication/orchestration, and communication with the frontend.
