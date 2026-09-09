@@ -1,0 +1,432 @@
+{
+  "project": "SIH26057 \u2014 Smart Scan Strategy (side-scan sonar debris/anomaly detection)",
+  "artifact": "ML handoff manifest",
+  "schema_version": 1,
+  "generated_utc": "2026-09-05T15:50:56Z",
+  "read_this_first": [
+    "This pipeline does NOT outperform a well-tuned YOLOv8 alone on this dataset. Best F1 0.907 vs 0.894; the difference is not statistically resolvable.",
+    "The contribution is the fusion-operator result: on identical models, union scores F1 0.612 and corroboration 0.907.",
+    "All numbers below are leakage-corrected. Any earlier figure (notably F1 0.909 vs 0.822) is invalid \u2014 see data_leakage.",
+    "Physics highlight/shadow verification is DISABLED because it was measured and did not work. See negative_results."
+  ],
+  "models": {
+    "detector": {
+      "arch": "YOLOv8",
+      "weights": "/kaggle/working/runs/detect/sih26057/full_run_2class/weights/best.pt",
+      "classes": {
+        "0": "aircraft",
+        "1": "shipwreck"
+      },
+      "conf_threshold": 0.25,
+      "note": "F1 is flat 0.25-0.50; 0.25 is the operating point"
+    },
+    "anomaly": {
+      "arch": "PatchCore (anomalib)",
+      "weights": "/kaggle/working/results/Patchcore/seafloor/v1/weights/lightning/model.ckpt",
+      "image_gate": 0.3103,
+      "anomaly_map_size": [
+        256,
+        256
+      ],
+      "CRITICAL": "pred_score is normalised against the adaptive threshold fitted at train time, so the 0.3103 gate is valid ONLY for this checkpoint under the pinned anomalib version. Changing either silently invalidates it."
+    }
+  },
+  "config": {
+    "heatmap_mode": "absolute",
+    "heat_threshold_abs": 0.35,
+    "min_area_px": 200,
+    "merge_gap_norm": 0.02,
+    "fusion_iou": 0.1,
+    "yolo_conf": 0.25,
+    "close_px": {
+      "value": 0,
+      "note": "NO-OP \u2014 merge_gap 0.02 (~5px at 256) already absorbs it; box counts identical for 0/3/5/7. Do not expose as a knob."
+    },
+    "per_image_minmax_normalisation": {
+      "enabled": false,
+      "note": "structural defect \u2014 guarantees boxes on any gated-in image. Use absolute thresholding."
+    }
+  },
+  "input_requirements": {
+    "colour": "RGB",
+    "anomaly_branch_resolution": "256x256 (must match to reproduce scores)",
+    "detector_resolution": "ultralytics default letterbox",
+    "bbox_format": "normalised xyxy, 0-1"
+  },
+  "output_contract": {
+    "type": "list[dict], one per surviving detection",
+    "fields": {
+      "bbox": "{x_min,y_min,x_max,y_max} normalised 0-1",
+      "src": "'both' | 'yolo_only' | 'patchcore_only'",
+      "class_name": "one of ['aircraft', 'shipwreck'] for yolo_only/both; null for patchcore_only",
+      "yolo_conf": "float 0-1, null for patchcore_only",
+      "anomaly_score": "float, max of the anomaly map inside bbox. Computed for EVERY detection including yolo_only, where it is informational only - the yolo_only bucket rule uses yolo_conf.",
+      "bucket": "'HIGH' | 'REVIEW' | 'REJECT'",
+      "anomaly_mean": "float, mean of the anomaly map inside bbox"
+    },
+    "WARNING": "there is no 'mine' class \u2014 an earlier 3-class dataset (Mine-detection-1) is stale and must not be used. Class index 1 is 'shipwreck'.",
+    "note_all_returned": "detect() returns REJECT detections too. Filter downstream; surface them if recall matters more than operator load."
+  },
+  "decision_policy": {
+    "criterion": "center-hit",
+    "image_gate": 0.3103,
+    "heat_threshold_abs": 0.35,
+    "min_area_px": 200,
+    "merge_gap_norm": 0.02,
+    "fusion_iou": 0.1,
+    "yolo_conf": 0.25,
+    "review_yolo_only_conf": 0.7,
+    "review_patchcore_only_amax": 0.55,
+    "buckets": {
+      "HIGH": "src == both",
+      "REVIEW": "(yolo_only and conf >= 0.7) or (patchcore_only and amax >= 0.55)",
+      "REJECT": "everything else"
+    },
+    "physics_verification": "disabled \u2014 see negative result"
+  },
+  "evaluation": {
+    "dataset": {
+      "images": 143,
+      "composition": "28 pristine test + 17 seafloor normals + 98 train-unseen valid",
+      "gt_objects": 116,
+      "unique_source_scenes": 124
+    },
+    "matching_criterion": {
+      "used": "center-hit",
+      "why_not_iou": "median GT box covers 23.6% of the frame, so a correctly placed small box scores IoU ~0.013"
+    },
+    "systems_one_to_one": {
+      "yolo only": {
+        "TP": 108,
+        "FP": 20,
+        "FN": 8,
+        "P": 0.8438,
+        "R": 0.931,
+        "F1": 0.8852
+      },
+      "patchcore only": {
+        "TP": 112,
+        "FP": 124,
+        "FN": 4,
+        "P": 0.4746,
+        "R": 0.9655,
+        "F1": 0.6364
+      },
+      "union (yolo|pc)": {
+        "TP": 113,
+        "FP": 140,
+        "FN": 3,
+        "P": 0.4466,
+        "R": 0.9741,
+        "F1": 0.6125
+      },
+      "corroboration": {
+        "TP": 103,
+        "FP": 8,
+        "FN": 13,
+        "P": 0.9279,
+        "R": 0.8879,
+        "F1": 0.9075
+      },
+      "policy (HIGH+REVIEW)": {
+        "TP": 111,
+        "FP": 23,
+        "FN": 5,
+        "P": 0.8284,
+        "R": 0.9569,
+        "F1": 0.888
+      }
+    },
+    "buckets": {
+      "HIGH": 111,
+      "REVIEW": 23,
+      "REJECT": 119
+    },
+    "yolo_conf_sweep": [
+      {
+        "yolo_conf": 0.05,
+        "yolo_only": {
+          "P": 0.619,
+          "R": 0.966,
+          "F1": 0.754
+        },
+        "corroboration": {
+          "P": 0.89,
+          "R": 0.905,
+          "F1": 0.897
+        }
+      },
+      {
+        "yolo_conf": 0.1,
+        "yolo_only": {
+          "P": 0.725,
+          "R": 0.957,
+          "F1": 0.825
+        },
+        "corroboration": {
+          "P": 0.897,
+          "R": 0.897,
+          "F1": 0.897
+        }
+      },
+      {
+        "yolo_conf": 0.15,
+        "yolo_only": {
+          "P": 0.759,
+          "R": 0.948,
+          "F1": 0.843
+        },
+        "corroboration": {
+          "P": 0.904,
+          "R": 0.888,
+          "F1": 0.896
+        }
+      },
+      {
+        "yolo_conf": 0.2,
+        "yolo_only": {
+          "P": 0.8,
+          "R": 0.931,
+          "F1": 0.861
+        },
+        "corroboration": {
+          "P": 0.911,
+          "R": 0.879,
+          "F1": 0.895
+        }
+      },
+      {
+        "yolo_conf": 0.25,
+        "yolo_only": {
+          "P": 0.844,
+          "R": 0.931,
+          "F1": 0.885
+        },
+        "corroboration": {
+          "P": 0.928,
+          "R": 0.888,
+          "F1": 0.907
+        }
+      },
+      {
+        "yolo_conf": 0.3,
+        "yolo_only": {
+          "P": 0.85,
+          "R": 0.931,
+          "F1": 0.889
+        },
+        "corroboration": {
+          "P": 0.928,
+          "R": 0.888,
+          "F1": 0.907
+        }
+      },
+      {
+        "yolo_conf": 0.35,
+        "yolo_only": {
+          "P": 0.852,
+          "R": 0.897,
+          "F1": 0.874
+        },
+        "corroboration": {
+          "P": 0.925,
+          "R": 0.853,
+          "F1": 0.888
+        }
+      },
+      {
+        "yolo_conf": 0.4,
+        "yolo_only": {
+          "P": 0.873,
+          "R": 0.888,
+          "F1": 0.88
+        },
+        "corroboration": {
+          "P": 0.942,
+          "R": 0.845,
+          "F1": 0.891
+        }
+      },
+      {
+        "yolo_conf": 0.45,
+        "yolo_only": {
+          "P": 0.886,
+          "R": 0.871,
+          "F1": 0.878
+        },
+        "corroboration": {
+          "P": 0.95,
+          "R": 0.828,
+          "F1": 0.885
+        }
+      },
+      {
+        "yolo_conf": 0.5,
+        "yolo_only": {
+          "P": 0.885,
+          "R": 0.862,
+          "F1": 0.873
+        },
+        "corroboration": {
+          "P": 0.95,
+          "R": 0.819,
+          "F1": 0.88
+        }
+      },
+      {
+        "yolo_conf": 0.55,
+        "yolo_only": {
+          "P": 0.892,
+          "R": 0.853,
+          "F1": 0.872
+        },
+        "corroboration": {
+          "P": 0.949,
+          "R": 0.81,
+          "F1": 0.874
+        }
+      },
+      {
+        "yolo_conf": 0.6,
+        "yolo_only": {
+          "P": 0.925,
+          "R": 0.853,
+          "F1": 0.888
+        },
+        "corroboration": {
+          "P": 0.969,
+          "R": 0.81,
+          "F1": 0.883
+        }
+      },
+      {
+        "yolo_conf": 0.65,
+        "yolo_only": {
+          "P": 0.933,
+          "R": 0.836,
+          "F1": 0.882
+        },
+        "corroboration": {
+          "P": 0.979,
+          "R": 0.793,
+          "F1": 0.876
+        }
+      },
+      {
+        "yolo_conf": 0.7,
+        "yolo_only": {
+          "P": 0.96,
+          "R": 0.836,
+          "F1": 0.894
+        },
+        "corroboration": {
+          "P": 0.979,
+          "R": 0.793,
+          "F1": 0.876
+        }
+      },
+      {
+        "yolo_conf": 0.75,
+        "yolo_only": {
+          "P": 0.989,
+          "R": 0.776,
+          "F1": 0.87
+        },
+        "corroboration": {
+          "P": 1.0,
+          "R": 0.733,
+          "F1": 0.846
+        }
+      },
+      {
+        "yolo_conf": 0.8,
+        "yolo_only": {
+          "P": 1.0,
+          "R": 0.716,
+          "F1": 0.834
+        },
+        "corroboration": {
+          "P": 1.0,
+          "R": 0.672,
+          "F1": 0.804
+        }
+      }
+    ]
+  },
+  "statistical_findings": {
+    "resolvable": [
+      "Fusion operator: union F1 0.612 vs corroboration 0.907 on identical models (primary result).",
+      "PatchCore does localise: pixel AUROC 0.8169; anomaly peak inside GT object 78.3% vs 28.1% chance.",
+      "Anomaly branch recovers objects the detector misses: union recall 0.974 vs yolo 0.931 (~5 objects), at ~24 extra false boxes per extra find.",
+      "At a FIXED conf of 0.25, corroboration cuts FP by 12 (CI [-19,-6]) and loses 0.043 recall (CI [-0.085,-0.009]) \u2014 but see 'not_resolvable', a fixed-threshold comparison is not a fair one.",
+      "If the detector is deliberately run at conf<=0.15 to chase recall, corroboration prevents precision collapse (worst-case F1 +0.045, CI [+0.001,+0.090] over the 0.10-0.60 band)."
+    ],
+    "NOT_resolvable_do_not_claim": [
+      "best-F1 head to head: corroboration 0.907 (conf 0.25) vs yolo 0.894 (conf 0.70) = +0.015, CI [-0.021,+0.049]",
+      "matched-recall precision gain, curve-level: +0.033, CI [-0.050,+0.110], P(>0)=0.804",
+      "full three-bucket policy vs yolo alone: F1 +0.003 CI [-0.030,+0.035]; FP +3.1 CI [-5,+11]",
+      "threshold robustness over a realistic band (conf>=0.20): worst-case F1 +0.016, CI [-0.021,+0.055]. RETRACTED: an earlier +0.115 figure was an artifact of including conf 0.05-0.15."
+    ],
+    "method": "4000-resample bootstrap, resampled by source scene (not by image) to respect augmentation duplicates"
+  },
+  "negative_results": [
+    {
+      "finding": "highlight/shadow physics verification does not work on this data",
+      "evidence": "shadow-right-darker only 40.2% of the time; unbiased AUC 0.578; no nadir/water-column cue (column-brightness profile range 0.16); adding it to REVIEW worsened cost-per-extra-find 21.5 -> 51.0",
+      "action": "disabled in the shipped policy"
+    },
+    {
+      "finding": "adaptive max-contrast side selection is invalid as originally written",
+      "evidence": "picking the max-contrast side makes the asymmetry test true by construction \u2014 tell was the exact left-111/right-111 split"
+    },
+    {
+      "finding": "one-to-one matching turns extra blobs on the same object into false positives",
+      "action": "gap-based box merging before scoring"
+    }
+  ],
+  "data_leakage": {
+    "problem": "the Roboflow dataset was augmented BEFORE splitting; source scenes are recoverable from '.rf.<hash>' filenames",
+    "measured": "62 of 103 test scenes also appear in train; 59.3% of GT-bearing test scenes seen in train; 39 of 55 seafloor test scenes inside PatchCore's memory bank",
+    "consequence": "every metric measured before this discovery is inflated",
+    "recommendation": "regenerate the dataset with grouped splitting by source scene before any future training"
+  },
+  "known_limitations": [
+    "No genuine unknown objects exist in the dataset \u2014 every real object is labelled aircraft or shipwreck \u2014 so an unmatched PatchCore box is always scored a false positive. The open-set claim therefore has NO measurement behind it. Proving it needs a held-out-class protocol (train the detector on aircraft only, treat shipwreck as unknown).",
+    "The 98 'valid' images drove best.pt selection, so they are a weaker evidence tier than the 28 pristine test scenes.",
+    "REVIEW-bucket thresholds carry ~35% in-sample optimism: cross-validated by source scene, held-out cost-per-find is 1.12 and held-out extra objects 5.2 versus in-sample 8. Quote ~5 extra objects, not 8.",
+    "Within patchcore_only detections, no per-box feature separates true from false (amax AUC 0.580, amean 0.441, image score 0.474). Only the top tail is enriched.",
+    "One golden detection (yolo_only/REJECT in 000132_jpg.rf.c5f531751b93cedd4ce214261d87c3f5.jpg) has yolo_conf = 0.6944, only 0.0056 below the 0.7 threshold that decides its bucket. Detections that close to a threshold are borderline in production too, not just in the test: do not read REVIEW vs REJECT as a confident judgement for them. Both admit thresholds (yolo_conf 0.70, anomaly_score 0.55) are hard cutoffs with no hysteresis."
+  ],
+  "environment": {
+    "python": "3.12.13",
+    "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+    "pinned": {
+      "torch": "2.10.0+cu128",
+      "ultralytics": "8.4.140",
+      "anomalib": "2.6.0",
+      "numpy": "2.0.2",
+      "cv2": "4.13.0",
+      "PIL": "11.3.0"
+    },
+    "why_pinning_matters": "anomalib's post-processing normalisation determines what pred_score means; a version bump moves the 0.3103 gate without any error being raised"
+  },
+  "security": [
+    "The original notebook contained a hardcoded Roboflow API key. It must be rotated in Roboflow and loaded via Kaggle Secrets / environment variables. No key appears in this manifest or in any handoff file."
+  ],
+  "golden_cases": {
+    "file": "golden/golden_cases.json",
+    "images": "golden/images/",
+    "run": "python sonar_pipeline.py --selfcheck golden/golden_cases.json",
+    "must_print": "SELFCHECK PASS",
+    "selfcheck_semantics": "Detections are matched by bbox, not list position; bucket/src/class compared exactly; anomaly_score tolerance 2e-3 to absorb cross-host float drift while still catching a library version bump. Detection order is NOT part of the output contract.",
+    "tightest_threshold_margin": 0.00558
+  },
+  "module": {
+    "file": "sonar_pipeline.py",
+    "version": "1.0.0",
+    "sha256": "fb36ef2ef9e6c90a4b97450d410afae5e4413415c06e35e2547f7a33d6322abf",
+    "entrypoint": "SonarDetector(Config(...)).detect(image_path) -> list[dict]",
+    "batch_entrypoint": "SonarDetector(...).detect_dir(folder) -> {basename: list[dict]}",
+    "parity": "reproduces the evaluation notebook on 45/45 images (src, bucket, anomaly_score within 1e-4)"
+  }
+}

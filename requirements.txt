@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+sqlalchemy
+pillow
+ultralytics
+torch
+pyjwt
+bcrypt
+python-dotenv
+pytest
+httpx
+anomalib==2.6.0
+lightning==2.6.5
+pytorch-lightning==2.6.5
+timm==1.0.29

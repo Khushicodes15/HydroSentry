@@ -1,0 +1,11 @@
+# SIH26057 pinned environment. These versions are NOT advisory.
+# anomalib's post-processing decides what pred_score means, so a version bump moves
+# image_gate (0.3103) and every anomaly score with it -- silently, with no error.
+# Verify with: python sonar_pipeline.py --selfcheck golden/golden_cases.json
+# built against python 3.12.13, torch wheel 2.10.0+cu128
+torch==2.10.0
+ultralytics==8.4.140
+anomalib==2.6.0
+numpy==2.0.2
+opencv-python==4.13.0
+pillow==11.3.0

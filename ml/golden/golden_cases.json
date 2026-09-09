@@ -1,0 +1,256 @@
+{
+  "pipeline_version": "1.0.0",
+  "generated_utc": "2026-09-05T16:03:48+00:00",
+  "purpose": "Day-one integration test. Run: python sonar_pipeline.py --selfcheck golden/golden_cases.json  (from the handoff root). It must print SELFCHECK PASS before you trust any threshold in the manifest.",
+  "what_a_failure_means": "Almost always an anomalib/torch version drift. PatchCore's pred_score is normalised against the adaptive threshold fitted at train time, so a version bump silently moves the image_gate (0.3103) and every anomaly score with it. No exception is raised - only these numbers change.",
+  "config": {
+    "yolo_conf": 0.25,
+    "image_gate": 0.3103,
+    "heat_threshold_abs": 0.35,
+    "min_area_px": 200,
+    "merge_gap_norm": 0.02,
+    "fusion_iou": 0.1,
+    "review_yolo_only_conf": 0.7,
+    "review_patchcore_only_amax": 0.55
+  },
+  "tolerance": {
+    "anomaly_score_atol": 0.0001,
+    "bucket": "exact",
+    "src": "exact",
+    "detection_count": "exact"
+  },
+  "cases": [
+    {
+      "image_path": "images/57_jpg.rf.c4860158229ea07d6ee16c1619821053.jpg",
+      "source_pool": "seafloor",
+      "traits": [
+        "gated_in",
+        "normal_background",
+        "patchcore_only:REJECT",
+        "yolo_only:REVIEW"
+      ],
+      "image_anomaly_score": 0.412046,
+      "gate_passed": true,
+      "expected": [
+        {
+          "bbox": {
+            "x_min": 0.0343075767159462,
+            "y_min": 0.21822606027126312,
+            "x_max": 0.9631974101066589,
+            "y_max": 0.9773855209350586
+          },
+          "src": "yolo_only",
+          "class_name": "shipwreck",
+          "yolo_conf": 0.7387184500694275,
+          "anomaly_score": 0.4286114573478699,
+          "anomaly_mean": 0.21329908072948456,
+          "bucket": "REVIEW",
+          "threshold_margin": 0.038718,
+          "threshold_margin_note": "distance from yolo_conf to review_yolo_only_conf"
+        },
+        {
+          "bbox": {
+            "x_min": 0.14453125,
+            "y_min": 0.4765625,
+            "x_max": 0.25390625,
+            "y_max": 0.625
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.4286114573478699,
+          "anomaly_mean": 0.3709776997566223,
+          "bucket": "REJECT",
+          "threshold_margin": 0.121389,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        },
+        {
+          "bbox": {
+            "x_min": 0.51171875,
+            "y_min": 0.765625,
+            "x_max": 0.76171875,
+            "y_max": 0.93359375
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.4201197326183319,
+          "anomaly_mean": 0.350521057844162,
+          "bucket": "REJECT",
+          "threshold_margin": 0.12988,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        },
+        {
+          "bbox": {
+            "x_min": 0.52734375,
+            "y_min": 0.59375,
+            "x_max": 0.59765625,
+            "y_max": 0.6640625
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.37226176261901855,
+          "anomaly_mean": 0.35801175236701965,
+          "bucket": "REJECT",
+          "threshold_margin": 0.177738,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        }
+      ]
+    },
+    {
+      "image_path": "images/62_jpg.rf.0438e5c2d3835fb6c831030b12825ef3.jpg",
+      "source_pool": "seafloor",
+      "traits": [
+        "gated_out",
+        "no_detections",
+        "normal_background"
+      ],
+      "image_anomaly_score": 0.124453,
+      "gate_passed": false,
+      "expected": []
+    },
+    {
+      "image_path": "images/000241_jpg.rf.6c2ab53f9b0e26a55c86694fd9e8aa62.jpg",
+      "source_pool": "objects",
+      "traits": [
+        "both:HIGH",
+        "gated_in",
+        "patchcore_only:REJECT",
+        "patchcore_only:REVIEW"
+      ],
+      "image_anomaly_score": 0.623532,
+      "gate_passed": true,
+      "expected": [
+        {
+          "bbox": {
+            "x_min": 0.005330276675522327,
+            "y_min": 0.3871414363384247,
+            "x_max": 0.9968553781509399,
+            "y_max": 0.6622568368911743
+          },
+          "src": "both",
+          "class_name": "shipwreck",
+          "yolo_conf": 0.7481436133384705,
+          "anomaly_score": 0.5697000622749329,
+          "anomaly_mean": 0.32952794432640076,
+          "bucket": "HIGH",
+          "threshold_margin": null,
+          "threshold_margin_note": null
+        },
+        {
+          "bbox": {
+            "x_min": 0.0390625,
+            "y_min": 0.3125,
+            "x_max": 0.3203125,
+            "y_max": 0.578125
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.5697000622749329,
+          "anomaly_mean": 0.41988661885261536,
+          "bucket": "REVIEW",
+          "threshold_margin": 0.0197,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        },
+        {
+          "bbox": {
+            "x_min": 0.35546875,
+            "y_min": 0.0625,
+            "x_max": 0.42578125,
+            "y_max": 0.12109375
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.3922460079193115,
+          "anomaly_mean": 0.36365029215812683,
+          "bucket": "REJECT",
+          "threshold_margin": 0.157754,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        },
+        {
+          "bbox": {
+            "x_min": 0.796875,
+            "y_min": 0.11328125,
+            "x_max": 0.90625,
+            "y_max": 0.2890625
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.3775569498538971,
+          "anomaly_mean": 0.34092456102371216,
+          "bucket": "REJECT",
+          "threshold_margin": 0.172443,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        }
+      ]
+    },
+    {
+      "image_path": "images/000132_jpg.rf.c5f531751b93cedd4ce214261d87c3f5.jpg",
+      "source_pool": "seafloor",
+      "traits": [
+        "gated_in",
+        "normal_background",
+        "patchcore_only:REJECT",
+        "yolo_only:REJECT"
+      ],
+      "image_anomaly_score": 0.467673,
+      "gate_passed": true,
+      "expected": [
+        {
+          "bbox": {
+            "x_min": 0.05156364664435387,
+            "y_min": 0.5344932675361633,
+            "x_max": 0.22112761437892914,
+            "y_max": 0.6499199867248535
+          },
+          "src": "yolo_only",
+          "class_name": "shipwreck",
+          "yolo_conf": 0.6944204568862915,
+          "anomaly_score": 0.2883310914039612,
+          "anomaly_mean": 0.2519187033176422,
+          "bucket": "REJECT",
+          "threshold_margin": 0.00558,
+          "threshold_margin_note": "distance from yolo_conf to review_yolo_only_conf"
+        },
+        {
+          "bbox": {
+            "x_min": 0.07421875,
+            "y_min": 0.15234375,
+            "x_max": 0.16015625,
+            "y_max": 0.2578125
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.40278100967407227,
+          "anomaly_mean": 0.3647790849208832,
+          "bucket": "REJECT",
+          "threshold_margin": 0.147219,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        },
+        {
+          "bbox": {
+            "x_min": 0.16796875,
+            "y_min": 0.828125,
+            "x_max": 0.30078125,
+            "y_max": 0.94140625
+          },
+          "src": "patchcore_only",
+          "class_name": null,
+          "yolo_conf": null,
+          "anomaly_score": 0.45000752806663513,
+          "anomaly_mean": 0.3757643699645996,
+          "bucket": "REJECT",
+          "threshold_margin": 0.099992,
+          "threshold_margin_note": "distance from anomaly_score to review_patchcore_only_amax"
+        }
+      ]
+    }
+  ],
+  "note_ordering": "expected[] is in the module's canonical sort order (bucket, then descending yolo_conf). selfcheck matches by bbox, so order is not contractual.",
+  "note_fragility": "Tightest bucket-threshold margin in this golden set is 0.0056 (yolo_only/REJECT in 000132_jpg.rf.c5f531751b93cedd4ce214261d87c3f5.jpg). If ONLY that detection's bucket differs on your host, suspect float drift on a knife-edge detection, not a broken install. If several detections differ, or anomaly scores differ by more than 0.01, a library version moved."
+}

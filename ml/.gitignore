@@ -1,0 +1,16 @@
+# model weights are distributed as release assets, never committed:
+# the PatchCore checkpoint is ~315 MB and GitHub rejects files over 100 MB
+*.ckpt
+*.pt
+*.pth
+*.zip
+*.pkl
+
+# stale artefacts that must never enter the repo
+Mine-detection-1/
+*.STALE_PRE_LEAKAGE_DO_NOT_USE
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.env
