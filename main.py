@@ -36,19 +36,54 @@ async def lifespan(app: FastAPI):
     annotated_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "artifacts", "annotated")
     os.makedirs(annotated_dir, exist_ok=True)
 
-    # 3. Pre-load unified SonarDetector once at application startup (singleton)
+    # 3. Ensure weights directory and files exist (download from external storage if missing)
+    weights_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights")
+    os.makedirs(weights_dir, exist_ok=True)
+
+    best_pt = os.path.join(weights_dir, "best.pt")
+    if not os.path.exists(best_pt):
+        try:
+            import urllib.request
+            logger.info("Downloading best.pt (~6MB) from GitHub...")
+            urllib.request.urlretrieve(
+                "https://raw.githubusercontent.com/Khushicodes15/HydroSentry/main/weights/best.pt",
+                best_pt,
+            )
+            logger.info("Downloaded best.pt.")
+        except Exception as e:
+            logger.warning("Could not download best.pt: %s", e)
+
+    model_ckpt = os.path.join(weights_dir, "model.ckpt")
+    if not os.path.exists(model_ckpt):
+        try:
+            import urllib.request
+            logger.info("Downloading PatchCore model.ckpt (~315MB) from GitHub release...")
+            urllib.request.urlretrieve(
+                "https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt",
+                model_ckpt,
+            )
+            logger.info("Downloaded model.ckpt.")
+        except Exception as e:
+            logger.warning("Could not download model.ckpt: %s", e)
+
+    # 4. Pre-load unified SonarDetector once at application startup (singleton)
     try:
         cfg = autodiscover()
         detector = SonarDetector(cfg)
         detector._load()
 
         yolo_loaded = detector._yolo is not None and os.path.exists(detector.cfg.yolo_weights)
-        patchcore_loaded = detector._pc is not None and os.path.exists(detector.cfg.patchcore_ckpt)
+        patchcore_loaded = (
+            detector._pc is not None
+            and detector.cfg.patchcore_ckpt is not None
+            and os.path.exists(detector.cfg.patchcore_ckpt)
+        )
 
         app.state.detector = detector
         app.state.yolo_loaded = bool(yolo_loaded)
         app.state.patchcore_loaded = bool(patchcore_loaded)
-        app.state.model_loaded = bool(yolo_loaded and patchcore_loaded)
+        # Model is ready for detection as long as YOLO is loaded!
+        app.state.model_loaded = bool(yolo_loaded)
         logger.info("SonarDetector models loaded successfully (YOLO: %s, PatchCore: %s)", yolo_loaded, patchcore_loaded)
     except Exception as exc:
         logger.error("Failed to pre-load SonarDetector models: %s", exc, exc_info=True)

@@ -43,7 +43,7 @@ CLASS_NAMES = {0: "aircraft", 1: "shipwreck"}   # there is no 'mine' class
 @dataclass(frozen=True)
 class Config:
     yolo_weights: str
-    patchcore_ckpt: str
+    patchcore_ckpt: Optional[str] = None
     yolo_conf: float = 0.25            # F1 flat 0.25-0.50; 0.25 is the operating point
     image_gate: float = 0.3103         # PatchCore pred_score gate (checkpoint-bound)
     heat_threshold_abs: float = 0.35   # ABSOLUTE threshold on the raw anomaly map
@@ -190,24 +190,24 @@ class SonarDetector:
         self._yolo = None
         self._pc = None
         self._engine = None
-        for p in (cfg.yolo_weights, cfg.patchcore_ckpt):
-            if not os.path.exists(p):
-                raise FileNotFoundError("missing weights: " + str(p))
+        if not os.path.exists(cfg.yolo_weights):
+            raise FileNotFoundError("missing YOLO weights: " + str(cfg.yolo_weights))
 
     def _load(self):
         if self._yolo is not None:
             return
         from ultralytics import YOLO
-        try:
-            from anomalib.models import Patchcore
-            from anomalib.engine import Engine
-        except ImportError as e:
-            raise ImportError(
-                "anomalib is required. Install the pinned version from the manifest."
-            ) from e
         self._yolo = YOLO(self.cfg.yolo_weights)
-        self._pc = Patchcore.load_from_checkpoint(self.cfg.patchcore_ckpt, weights_only=False)
-        self._engine = Engine()
+        if self.cfg.patchcore_ckpt and os.path.exists(self.cfg.patchcore_ckpt):
+            try:
+                from anomalib.models import Patchcore
+                from anomalib.engine import Engine
+                self._pc = Patchcore.load_from_checkpoint(self.cfg.patchcore_ckpt, weights_only=False)
+                self._engine = Engine()
+            except Exception as e:
+                import logging
+                logging.getLogger("hydrosentry").warning("PatchCore load skipped/failed: %s", e)
+                self._pc = None
 
     @staticmethod
     def _pred_path(p):
@@ -271,26 +271,62 @@ class SonarDetector:
 
         Every detection is returned, including bucket == 'REJECT'. Filter downstream.
         """
-        an = self._anomaly(image_path)
-        key = os.path.basename(image_path)
-        if key not in an:
-            raise RuntimeError("anomaly branch returned nothing for " + key)
-        score, amap = an[key]
-        return self._assemble(amap, score, self._yolo_boxes(image_path))
+        if self._pc is not None:
+            try:
+                an = self._anomaly(image_path)
+                key = os.path.basename(image_path)
+                if key in an:
+                    score, amap = an[key]
+                    return self._assemble(amap, score, self._yolo_boxes(image_path))
+            except Exception as e:
+                import logging
+                logging.getLogger("hydrosentry").warning("Anomaly branch failed, falling back to YOLO: %s", e)
+
+        # Fallback to YOLO-only detections
+        yl = self._yolo_boxes(image_path)
+        dets = []
+        for y in yl:
+            conf = y.get("confidence", 0.0)
+            bucket = "HIGH" if conf >= 0.70 else "REVIEW" if conf >= self.cfg.yolo_conf else "REJECT"
+            dets.append({
+                "bbox": y["bbox"],
+                "src": "yolo_only",
+                "class_name": y.get("class_name"),
+                "yolo_conf": conf,
+                "anomaly_score": 0.0,
+                "anomaly_mean": 0.0,
+                "bucket": bucket,
+            })
+        order = {"HIGH": 0, "REVIEW": 1, "REJECT": 2}
+        return sorted(dets, key=lambda d: (order[d["bucket"]], -(d["yolo_conf"] or 0.0)))
 
     def detect_dir(self, folder, exts=(".jpg", ".jpeg", ".png", ".bmp", ".tif")):
         """Batch form. Much faster than looping detect() - the anomaly branch runs once."""
-        an = self._anomaly(folder)
+        if self._pc is not None:
+            try:
+                an = self._anomaly(folder)
+                out = {}
+                for name, (score, amap) in an.items():
+                    if not name.lower().endswith(exts):
+                        continue
+                    out[name] = self._assemble(amap, score,
+                                               self._yolo_boxes(os.path.join(folder, name)))
+                return out
+            except Exception as e:
+                import logging
+                logging.getLogger("hydrosentry").warning("Anomaly batch pass failed: %s", e)
+
         out = {}
-        for name, (score, amap) in an.items():
+        for name in os.listdir(folder):
             if not name.lower().endswith(exts):
                 continue
-            out[name] = self._assemble(amap, score,
-                                       self._yolo_boxes(os.path.join(folder, name)))
+            out[name] = self.detect(os.path.join(folder, name))
         return out
 
     def image_score(self, image_path):
-        return self._anomaly(image_path)[os.path.basename(image_path)][0]
+        if self._pc is not None:
+            return self._anomaly(image_path)[os.path.basename(image_path)][0]
+        return 0.0
 
 
 # ------------------------------------------------------------------ helpers
@@ -304,15 +340,19 @@ def autodiscover(root=None):
     pb, pc = os.path.join(proj_weights, "best.pt"), os.path.join(proj_weights, "model.ckpt")
     if os.path.exists(pb) and os.path.exists(pc):
         return Config(yolo_weights=pb, patchcore_ckpt=pc)
+    # Check if best.pt exists alone (YOLO mode)
+    if os.path.exists(pb):
+        return Config(yolo_weights=pb, patchcore_ckpt=None)
+    if os.path.exists(lb):
+        return Config(yolo_weights=lb, patchcore_ckpt=None)
     root = root or "/kaggle/working"
     ck = sorted(glob.glob(os.path.join(root, "**/weights/lightning/model.ckpt"), recursive=True))
     yw = sorted(glob.glob(os.path.join(root, "**/weights/best.pt"), recursive=True))
-    if not ck or not yw:
-        raise FileNotFoundError(
-            "could not locate weights. Expected best.pt and model.ckpt in " + local
-            + " or " + proj_weights
-            + ", or pass Config(yolo_weights=..., patchcore_ckpt=...) explicitly.")
-    return Config(yolo_weights=yw[-1], patchcore_ckpt=ck[-1])
+    if yw:
+        return Config(yolo_weights=yw[-1], patchcore_ckpt=ck[-1] if ck else None)
+    raise FileNotFoundError(
+        "could not locate weights. Expected best.pt in " + local
+        + " or " + proj_weights)
 
 
 def selfcheck(det, golden_json, atol=2e-3):
