@@ -1,6 +1,18 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["YOLO_VERBOSE"] = "False"
+os.environ["YOLO_CONFIG_DIR"] = "/tmp/Ultralytics"
+
+import torch
+torch.set_num_threads(1)
+torch.set_grad_enabled(False)
+
 from contextlib import asynccontextmanager
 import logging
-import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as default_http_exception_handler

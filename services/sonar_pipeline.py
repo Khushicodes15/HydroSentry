@@ -242,7 +242,18 @@ class SonarDetector:
 
     def _yolo_boxes(self, path):
         self._load()
-        r = self._yolo.predict(path, conf=self.cfg.yolo_conf, verbose=False)[0]
+        import torch
+        with torch.inference_mode():
+            r = self._yolo.predict(
+                path,
+                conf=self.cfg.yolo_conf,
+                verbose=False,
+                plots=False,
+                save=False,
+                device="cpu",
+                imgsz=416,
+                max_det=20,
+            )[0]
         bs = []
         if r.boxes is not None and len(r.boxes):
             xy = r.boxes.xyxyn.cpu().numpy()
