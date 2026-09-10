@@ -32,6 +32,20 @@ async def lifespan(app: FastAPI):
     # 1. Initialize database schema
     Base.metadata.create_all(bind=engine)
 
+    # 1b. Ensure default operator account exists
+    try:
+        from database.database import SessionLocal
+        from database.crud import get_user_by_username, create_user
+        db = SessionLocal()
+        try:
+            if not get_user_by_username(db, "operator"):
+                create_user(db, username="operator", email="operator@hydrosentry.org", password="Operator@2026")
+                logger.info("Default operator user seeded.")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Could not seed default operator: %s", e)
+
     # 2. Ensure artifacts directory exists
     annotated_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "artifacts", "annotated")
     os.makedirs(annotated_dir, exist_ok=True)
