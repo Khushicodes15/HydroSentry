@@ -332,13 +332,14 @@ class SonarDetector:
 # ------------------------------------------------------------------ helpers
 def autodiscover(root=None):
     """Locate weights. Prefers <module dir>/weights/, then <project root>/weights/, then falls back to search root."""
+    enable_patchcore = os.getenv("ENABLE_PATCHCORE", "false").lower() in ("true", "1")
     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights")
     lb, lc = os.path.join(local, "best.pt"), os.path.join(local, "model.ckpt")
-    if os.path.exists(lb) and os.path.exists(lc):
+    if enable_patchcore and os.path.exists(lb) and os.path.exists(lc):
         return Config(yolo_weights=lb, patchcore_ckpt=lc)
     proj_weights = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "weights")
     pb, pc = os.path.join(proj_weights, "best.pt"), os.path.join(proj_weights, "model.ckpt")
-    if os.path.exists(pb) and os.path.exists(pc):
+    if enable_patchcore and os.path.exists(pb) and os.path.exists(pc):
         return Config(yolo_weights=pb, patchcore_ckpt=pc)
     # Check if best.pt exists alone (YOLO mode)
     if os.path.exists(pb):
@@ -349,7 +350,7 @@ def autodiscover(root=None):
     ck = sorted(glob.glob(os.path.join(root, "**/weights/lightning/model.ckpt"), recursive=True))
     yw = sorted(glob.glob(os.path.join(root, "**/weights/best.pt"), recursive=True))
     if yw:
-        return Config(yolo_weights=yw[-1], patchcore_ckpt=ck[-1] if ck else None)
+        return Config(yolo_weights=yw[-1], patchcore_ckpt=ck[-1] if (enable_patchcore and ck) else None)
     raise FileNotFoundError(
         "could not locate weights. Expected best.pt in " + local
         + " or " + proj_weights)

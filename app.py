@@ -3,15 +3,17 @@ import urllib.request
 import gradio as gr
 import uvicorn
 
-# 1. Download PatchCore weights if missing before loading detector
-weights_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights")
-os.makedirs(weights_dir, exist_ok=True)
-ckpt_path = os.path.join(weights_dir, "model.ckpt")
-if not os.path.exists(ckpt_path):
-    print("Downloading PatchCore model.ckpt (~315MB) from GitHub Release...")
-    url = "https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt"
-    urllib.request.urlretrieve(url, ckpt_path)
-    print("Download complete.")
+# 1. Download PatchCore weights only if explicitly enabled
+enable_patchcore = os.getenv("ENABLE_PATCHCORE", "false").lower() in ("true", "1")
+if enable_patchcore:
+    weights_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights")
+    os.makedirs(weights_dir, exist_ok=True)
+    ckpt_path = os.path.join(weights_dir, "model.ckpt")
+    if not os.path.exists(ckpt_path):
+        print("Downloading PatchCore model.ckpt (~315MB) from GitHub Release...")
+        url = "https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt"
+        urllib.request.urlretrieve(url, ckpt_path)
+        print("Download complete.")
 
 # 2. Import FastAPI application (triggers lifespan & model loading)
 from main import app as fastapi_app

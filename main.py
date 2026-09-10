@@ -53,18 +53,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Could not download best.pt: %s", e)
 
-    model_ckpt = os.path.join(weights_dir, "model.ckpt")
-    if not os.path.exists(model_ckpt):
-        try:
-            import urllib.request
-            logger.info("Downloading PatchCore model.ckpt (~315MB) from GitHub release...")
-            urllib.request.urlretrieve(
-                "https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt",
-                model_ckpt,
-            )
-            logger.info("Downloaded model.ckpt.")
-        except Exception as e:
-            logger.warning("Could not download model.ckpt: %s", e)
+    # PatchCore (~315MB) is gated behind ENABLE_PATCHCORE (default: false) to stay within cloud RAM limits (512MB RAM)
+    enable_patchcore = os.getenv("ENABLE_PATCHCORE", "false").lower() in ("true", "1")
+    if enable_patchcore:
+        model_ckpt = os.path.join(weights_dir, "model.ckpt")
+        if not os.path.exists(model_ckpt):
+            try:
+                import urllib.request
+                logger.info("Downloading PatchCore model.ckpt (~315MB) from GitHub release...")
+                urllib.request.urlretrieve(
+                    "https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt",
+                    model_ckpt,
+                )
+                logger.info("Downloaded model.ckpt.")
+            except Exception as e:
+                logger.warning("Could not download model.ckpt: %s", e)
+    else:
+        logger.info("PatchCore disabled (ENABLE_PATCHCORE=false). Operating in lightweight YOLO mode (~120MB RAM) for high-performance deployment.")
 
     # 4. Pre-load unified SonarDetector once at application startup (singleton)
     try:
@@ -151,6 +156,19 @@ app.include_router(auth_router)
 app.include_router(detection_router)
 app.include_router(report_router)
 app.include_router(image_router)
+ 
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "service": "HydroSentry Sonar AI Backend",
+        "model": "YOLOv8n (Marine Object Detection)",
+        "endpoints": {
+            "health": "/api/health",
+            "docs": "/docs",
+            "detect": "POST /api/detect",
+        },
+    }
 
 if __name__ == "__main__":
     import uvicorn
