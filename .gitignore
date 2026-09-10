@@ -52,5 +52,4 @@ Thumbs.db
 artifacts/
 results/
 
-# Large ML checkpoint
-weights/model.ckpt
+
