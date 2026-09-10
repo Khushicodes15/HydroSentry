@@ -16,6 +16,14 @@ from services.sonar_pipeline import SonarDetector, autodiscover
 from utils.image import InvalidImageException
 
 load_dotenv()
+
+# Configure logging so logger.info / logger.error calls actually emit output.
+# Without this, the "hydrosentry" logger has no handler attached and messages
+# may be silently dropped depending on what else configures logging.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 logger = logging.getLogger("hydrosentry")
 
 
@@ -59,10 +67,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Enable CORS for frontend integration
+# Enable CORS for frontend integration.
+#
+# NOTE: allow_origins=["*"] cannot be combined with allow_credentials=True.
+# Per the CORS spec, browsers reject that combination client-side even if
+# the server responds successfully, since a wildcard origin + credentials
+# would let any site read credentialed responses.
+#
+# Origins are read from the CORS_ORIGINS env var (comma-separated) so you
+# can configure different values per environment (local dev vs Render)
+# without touching code. Falls back to common local dev ports if unset.
+cors_origins_env = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:8080",
+)
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+logger.info("CORS allow_origins configured: %s", cors_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
