@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     libxcb1 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install CPU-only PyTorch and Torchvision to reduce image size by ~2.5 GB (skips bulky CUDA binaries on Cloud Run)
