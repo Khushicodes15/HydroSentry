@@ -38,8 +38,8 @@ RUN if [ ! -f weights/model.ckpt ]; then \
         curl -fsSL -o weights/model.ckpt https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/model.ckpt ; \
     fi && \
     if [ ! -f weights/best.pt ]; then \
-        echo "Downloading YOLOv8 best.pt from GitHub release..." && \
-        curl -fsSL -o weights/best.pt https://github.com/Khushicodes15/HydroSentry/releases/download/v1.0.0-weights/best.pt ; \
+        echo "Downloading YOLOv8 best.pt..." && \
+        curl -fsSL -o weights/best.pt https://raw.githubusercontent.com/Khushicodes15/HydroSentry/main/weights/best.pt ; \
     fi
 
 # Cloud Run injects $PORT (default: 8080)
