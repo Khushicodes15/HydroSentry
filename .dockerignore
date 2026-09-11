@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python cache & virtual environments
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache
+.coverage
+htmlcov/
+
+# Local artifacts and temp files
+*.log
+artifacts/annotated/*
+!artifacts/annotated/.gitkeep
+.env
+.env.*
+.DS_Store
+Thumbs.db
